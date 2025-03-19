@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard - Xác suất Bán hàng theo Nhóm hàng</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px;
+        }
+        .chart-container {
+            margin-bottom: 40px;
+        }
+        .chart-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .chart-row {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            margin-bottom: 40px;
+        }
+        .chart {
+            width: 32%;
+            height: 450px;
+        }
+        .chart-large {
+            width: 48%;
+            height: 500px;
+        }
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            display: none;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <h2>Xác suất Bán hàng theo Nhóm hàng</h2>
+    <div class="chart-row">
+        <div class="chart-container">
+            <div class="chart-title" id="title1"></div>
+            <div class="chart" id="chart1"></div>
+        </div>
+        <div class="chart-container">
+            <div class="chart-title" id="title2"></div>
+            <div class="chart" id="chart2"></div>
+        </div>
+        <div class="chart-container">
+            <div class="chart-title" id="title3"></div>
+            <div class="chart" id="chart3"></div>
+        </div>
+    </div>
+    <div class="chart-row">
+        <div class="chart-container">
+            <div class="chart-title" id="title4"></div>
+            <div class="chart chart-large" id="chart4"></div>
+        </div>
+        <div class="chart-container">
+            <div class="chart-title" id="title5"></div>
+            <div class="chart chart-large" id="chart5"></div>
+        </div>
+    </div>
+    <div class="tooltip"></div>
+
+    <script>
+        const margin = { top: 20, right: 50, bottom: 60, left: 200 }, // Tăng lề trái để chứa mã mặt hàng
+            width = 750 - margin.left - margin.right,
+            height = 400 - margin.top - margin.bottom;
+
+        const tooltip = d3.select(".tooltip");
+
+        d3.dsv(";", "data_ggsheet.csv", d3.autoType).then(rawData => {
+            const nestedData = d3.rollup(
+                rawData,
+                v => d3.rollup(v,
+                    d => new Set(d.map(m => m["Mã đơn hàng"])).size, 
+                    m => `[${m["Mã mặt hàng"]}] ${m["Tên mặt hàng"]}` // Hiển thị mã mặt hàng + tên mặt hàng
+                ),
+                d => d["Mã nhóm hàng"],
+                d => d["Tên nhóm hàng"]
+            );
+
+            let chartIndex = 1;
+            nestedData.forEach((group, maNhom) => {
+                group.forEach((itemData, tenNhomHang) => {
+                    const data = [];
+                    const groupOrders = rawData.filter(d => d["Mã nhóm hàng"] === maNhom)
+                        .map(d => d["Mã đơn hàng"]);
+                    const uniqueOrdersInGroup = new Set(groupOrders).size;
+
+                    itemData.forEach((uniqueOrders, tenMatHang) => {
+                        data.push({
+                            MaNhomHang: maNhom,
+                            Tennhomhang: tenNhomHang,
+                            MatHang: tenMatHang,
+                            probability: uniqueOrders / uniqueOrdersInGroup 
+                        });
+                    });
+
+                    data.sort((a, b) => b.probability - a.probability);
+                    document.getElementById(`title${chartIndex}`).innerText = `[${maNhom}] ${tenNhomHang}`; // Thêm mã nhóm hàng vào tiêu đề
+
+                    const chartId = `chart${chartIndex}`;
+                    const svgContainer = d3.select(`#${chartId}`);
+                    const svg = svgContainer.append("svg")
+                        .attr("width", width + margin.left + margin.right)
+                        .attr("height", height + margin.top + margin.bottom)
+                        .append("g")
+                        .attr("transform", `translate(${margin.left},${margin.top})`);
+
+                    const color = d3.scaleOrdinal()
+                        .domain(data.map(d => d.MatHang))
+                        .range(d3.schemeSet3);
+
+                    const y = d3.scaleBand()
+                        .domain(data.map(d => d.MatHang))
+                        .range([0, height])
+                        .padding(0.2);
+
+                    const x = d3.scaleLinear()
+                        .domain([0, d3.max(data, d => d.probability)])
+                        .nice()
+                        .range([0, width]);
+
+                    svg.append("g")
+                        .call(d3.axisLeft(y))
+                        .selectAll("text")
+                        .style("font-size", "12px");
+
+                    svg.append("g")
+                        .attr("transform", `translate(0, ${height})`)
+                        .call(d3.axisBottom(x).ticks(5).tickFormat(d3.format(".0%")));
+
+                    svg.selectAll(".bar")
+                        .data(data)
+                        .enter()
+                        .append("rect")
+                        .attr("class", "bar")
+                        .attr("y", d => y(d.MatHang))
+                        .attr("x", 0)
+                        .attr("height", y.bandwidth())
+                        .attr("width", d => x(d.probability))
+                        .attr("fill", d => color(d.MatHang));
+                });
+                if (chartIndex >= 5) return;
+                chartIndex++;
+            });
+        }).catch(error => {
+            console.error("Lỗi khi load file CSV:", error);
+        });
+    </script>
+</body>
+</html>
